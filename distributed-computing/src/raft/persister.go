@@ -11,7 +11,7 @@ package raft
 
 import "sync"
 
-type Persister struct {
+type Persister struct { /*持久化，这个好像是存内存的啊*/
 	mu        sync.Mutex
 	raftstate []byte
 	snapshot  []byte

@@ -20,7 +20,7 @@ package raft
 import (
 	//"fmt"
 	"sync"
-	"labrpc"
+	"../labrpc"
 	"bytes"
 	"encoding/gob"
 	"time"
@@ -32,11 +32,11 @@ const (
 	CANDIDATE
 	FLLOWER
 
-	HBINTERVAL = 50 * time.Millisecond // 50ms
+	HBINTERVAL = 50 * time.Millisecond // 50ms 心跳周期是
 )
 
 
-//
+// 每个raft的peer觉察到（连续的，接下来的？）日志条目被提交，peer应该发送一个ApplyMsg给service（或者测试者），通过applyCh传递给Make（）
 // as each Raft peer becomes aware that successive log entries are
 // committed, the peer should send an ApplyMsg to the service (or
 // tester) on the same server, via the applyCh passed to Make().
@@ -55,11 +55,11 @@ type LogEntry struct {
 }
 
 //
-// A Go object implementing a single Raft peer.
+// A Go object implementing a single Raft peer. 单个点
 //
 type Raft struct {
 	mu            sync.Mutex
-	peers         []*labrpc.ClientEnd
+	peers         []*labrpc.ClientEnd /*所有peer*/
 	persister     *Persister
 	me            int // index into peers[]
 
@@ -72,7 +72,7 @@ type Raft struct {
 	voteCount     int
 	chanCommit    chan bool
 	chanHeartbeat chan bool
-	chanGrantVote chan bool
+	chanGrantVote chan bool  /*获得投票？？*/
 	chanLeader    chan bool
 	chanApply     chan ApplyMsg
 
@@ -81,11 +81,11 @@ type Raft struct {
 	votedFor      int
 	log           []LogEntry
 
-			  //volatile state on all servers
+			  //volatile state on all servers  易变的，不稳定的；
 	commitIndex   int
 	lastApplied   int
 
-			  //volatile state on leader
+			  //volatile state on leader 易变的，不稳定的；
 	nextIndex     []int
 	matchIndex    []int
 }
@@ -105,6 +105,7 @@ func (rf *Raft) getLastTerm() int {
 func (rf *Raft) IsLeader() bool {
 	return rf.state == LEADER
 }
+/*raft状态、term及日志持久化*/
 // save Raft's persistent state to stable storage,
 // where it can later be retrieved after a crash and restart.
 // see paper's Figure 2 for a description of what should be persistent.
@@ -145,6 +146,7 @@ func (rf *Raft) readSnapshot(data []byte) {
 
 	msg := ApplyMsg{UseSnapshot: true, Snapshot: data}
 
+	/*放到chan里，等着被读取，异步的操作啊*/
 	go func() {
 		rf.chanApply <- msg
 	}()
@@ -508,27 +510,29 @@ func (rf *Raft) sendInstallSnapshot(server int, args InstallSnapshotArgs, reply 
 
 
 //
-// the service using Raft (e.g. a k/v server) wants to start
+// the service using Raft (e.g. a k/v server) wants to start 开始协商下一条指令加入到日志中，如果这个服务不是leader，返回false TODO 只有leader才能加入日志？
 // agreement on the next command to be appended to Raft's log. if this
 // server isn't the leader, returns false. otherwise start the
 // agreement and return immediately. there is no guarantee that this
 // command will ever be committed to the Raft log, since the leader
-// may fail or lose an election.
+// may fail or lose an election.  并不保证command都会被commit到日志中，因为leader可能失败或者失去连接
 //
 // the first return value is the index that the command will appear at
 // if it's ever committed. the second return value is the current
 // term. the third return value is true if this server believes it is
 // the leader.
 //
-func (rf *Raft) Start(command interface{}) (int, int, bool) {
+func (rf *Raft) Start(command interface{}) (int, int, bool /*是否这个server认为自己是leader*/) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	index := -1
 	term := rf.currentTerm
+	/*这个时候不一定就是leader吧*/
 	isLeader := rf.state == LEADER
 	if isLeader {
 		index = rf.getLastIndex() + 1
 		//fmt.Printf("raft:%d start\n",rf.me)
+		/*收到了来自客户端的新日志*/
 		rf.log = append(rf.log, LogEntry{LogTerm:term, LogCommand:command, LogIndex:index}) // append new entry from client
 		rf.persist()
 	}
@@ -553,19 +557,19 @@ func (rf *Raft) broadcastRequestVote() {
 	args.LastLogTerm = rf.getLastTerm()
 	args.LastLogIndex = rf.getLastIndex()
 	rf.mu.Unlock()
-
+	/*并发的告诉集群中其他服务，要投票，这些服务的情况是记录在自己的本地持久化日志中的，而且这些服务必需是候选人的状态才能投票？？？TODO */
 	for i := range rf.peers {
-		if i != rf.me && rf.state == CANDIDATE {
+		if i != rf.me && rf.state == CANDIDATE /*TODO 必需是这个状态么？ */ {
 			go func(i int) {
 				var reply RequestVoteReply
-				rf.sendRequestVote(i, args, &reply)
+				rf.sendRequestVote(i, args, &reply) /*通过rpc发送并且要获取到应答，这里要不要有个超时的，如果阻塞在这里会咋样？TODO */
 			}(i)
 		}
 	}
 }
 
 /**
- * Log replication
+ * Log replication  复制，折叠； 回答； 反响； [植]反叠
  */
 func (rf *Raft) broadcastAppendEntries() {
 	rf.mu.Lock()
@@ -634,8 +638,8 @@ func (rf *Raft) broadcastAppendEntries() {
 // save its persistent state, and also initially holds the most
 // recent saved state, if any. applyCh is a channel on which the
 // tester or service expects Raft to send ApplyMsg messages.
-// Make() must return quickly, so it should start goroutines
-// for any long-running work.
+// Make() must return quickly, 必需快速返回 so it should start goroutines
+// for any long-running work. 这样可以启动携程运行任意长期运行的工作
 //
 func Make(peers []*labrpc.ClientEnd, me int,
 persister *Persister, applyCh chan ApplyMsg) *Raft {
@@ -647,7 +651,7 @@ persister *Persister, applyCh chan ApplyMsg) *Raft {
 	// Your initialization code here.
 	rf.state = FLLOWER
 	rf.votedFor = -1
-	rf.log = append(rf.log, LogEntry{LogTerm: 0})
+	rf.log = append(rf.log, LogEntry{LogTerm: 0})  /*初始为任期0*/
 	rf.currentTerm = 0
 	rf.chanCommit = make(chan bool, 100)
 	rf.chanHeartbeat = make(chan bool, 100)
@@ -655,14 +659,16 @@ persister *Persister, applyCh chan ApplyMsg) *Raft {
 	rf.chanLeader = make(chan bool, 100)
 	rf.chanApply = applyCh
 
-	// initialize from state persisted before a crash
-	rf.readPersist(persister.ReadRaftState())
+	// initialize from state persisted before a crash 在崩溃前，从一个持久化中启动
+	rf.readPersist(persister.ReadRaftState()) /*读取raft的状态和快照*/
 	rf.readSnapshot(persister.ReadSnapshot())
 
 	go func() {
 		for {
+			/*在几种身份状态之间切换*/
 			switch rf.state {
 			case FLLOWER:
+				/*follower要做的事情有监听心跳、投票以及超时作为候选人*/
 					select {
 					case <-rf.chanHeartbeat:
 					case <-rf.chanGrantVote:
@@ -670,36 +676,43 @@ persister *Persister, applyCh chan ApplyMsg) *Raft {
 						rf.state = CANDIDATE
 					}
 			case LEADER:
+				/*leader的工作是广播消息,间隔时间是50毫秒*/
 				//fmt.Printf("Leader:%v %v\n",rf.me,"boatcastAppendEntries	")
 				rf.broadcastAppendEntries()
-				time.Sleep(HBINTERVAL)
-			case CANDIDATE:
-				rf.mu.Lock()
+				time.Sleep(HBINTERVAL) /*心跳*/
+			case CANDIDATE: /*要搞事情选举*/
+				rf.mu.Lock() /*这是要锁写*/
+				/*在开始选举之前，候选人嫩必需增加自己的当前term任期，并且转换为一个候选状态*/
 				//To begin an election, a follower increments its current term and transitions to candidate state
-				rf.currentTerm++
+				rf.currentTerm++ /*任期增*/
+				/*然后，投票给自己，并且发送投票请求并发的发给其他的位于集群中的服务器*/
 				//It then votes for itself and issues RequestVote RPCs in parallel to each of the other servers in the cluster.
-				rf.votedFor = rf.me
-				rf.voteCount = 1
-				rf.persist()
-				rf.mu.Unlock()
+				rf.votedFor = rf.me /*投给自己*/
+				rf.voteCount = 1  /*投票一次*/
+				rf.persist()  /*状态持久化*/
+				rf.mu.Unlock() /*解开琐写*/
+				/*有三种请求？ a 赢得选举 b 另一个服务宣称自己是leader c 过了一段时间后发现没有人获胜*/
 				//(a) it wins the election, (b) another server establishes itself as leader, or (c) a period of time goes by with no winner
 				go rf.broadcastRequestVote()
 					select {
 					case <-time.After(time.Duration(rand.Int63() % 300 + 510) * time.Millisecond):
-					case <-rf.chanHeartbeat:
-						rf.state = FLLOWER
+					case <-rf.chanHeartbeat: /*有心跳，就认为自己是follower？*/
+						rf.state = FLLOWER /*	TODO 为啥这个不加锁控制呢？？*/
 					//	fmt.Printf("CANDIDATE %v reveive chanHeartbeat\n",rf.me)
-					case <-rf.chanLeader:
-						rf.mu.Lock()
+					case <-rf.chanLeader: /*leader会产生在这里？*/
+						rf.mu.Lock() /*加锁，锁写 */
 						rf.state = LEADER
 					//fmt.Printf("%v is Leader\n",rf.me)
-						rf.nextIndex = make([]int, len(rf.peers))
+						rf.nextIndex = make([]int, len(rf.peers)) /*放在slice里*/
 						rf.matchIndex = make([]int, len(rf.peers))
+						/*leader掌权之后，要做的事情*/
 						for i := range rf.peers {
+							/*维护一个针对每个follower的nextIndex slice，这个是leader会发给follower的下一个日志entry的index（follower就是index）*/
 							//The leader maintains a nextIndex for each follower, which is the index of the next log entry the leader will send to that follower.
 							// When a leader first comes to power, it initializes all nextIndex values to the index just after the last one in its log
+							/*leader首次掌权，会初始化所有的nextIndex值为日志中最后一个的值+1*/
 							rf.nextIndex[i] = rf.getLastIndex() + 1
-							rf.matchIndex[i] = 0
+							rf.matchIndex[i] = 0 /*这个是啥，啥匹配*/
 						}
 						rf.mu.Unlock()
 					//rf.boatcastAppendEntries()

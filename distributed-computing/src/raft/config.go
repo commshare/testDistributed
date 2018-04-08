@@ -8,12 +8,12 @@ package raft
 // test with the original before submitting.
 //
 
-import "labrpc"
+import "../labrpc"
 import "log"
 import "sync"
 import "testing"
 import "runtime"
-import crand "crypto/rand"
+import crand "crypto/rand"  /*需要加密*/
 import "encoding/base64"
 import "sync/atomic"
 import "time"
@@ -33,7 +33,7 @@ type config struct {
 	t         *testing.T
 	net       *labrpc.Network
 	n         int
-	done      int32         // tell internal threads to die
+	done      int32         // tell internal threads to die /*告诉内部线程去死*/
 	rafts     []*Raft
 	applyErr  []string      // from apply channel readers
 	connected []bool        // whether each server is on the net
@@ -72,7 +72,7 @@ func make_config(t *testing.T, n int, unreliable bool) *config {
 
 	return cfg
 }
-
+/*一旦崩溃就持久化存储*/
 // shut down a Raft server but save its persistent state.
 func (cfg *config) crash1(i int) {
 	cfg.disconnect(i)
